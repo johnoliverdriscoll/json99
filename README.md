@@ -53,26 +53,10 @@ with the parent.
 
 **Numbers**
 
-`json_value_read_number` writes a number's original bytes to a `JsonWriter`,
-validating its syntax without converting it. Pass `NULL` to validate and skip
-numbers of any length without buffering them. A supplied writer can impose
-its own storage limits. No terminator is written.
-
-`JsonNumberWriter`, declared in `<json99/json_number_writer.h>`, accumulates
-bounded conversion state without allocating. Initialize it with
-`json_number_writer_init`, pass its writer interface to
-`json_value_read_number`, then call `json_number_writer_get_int64` or
-`json_number_writer_get_double`. Both getters leave the state unchanged.
-Use a buffer writer instead when you need to retain the exact text.
-
-The convenience functions use this number writer internally.
-`json_value_get_int64` accepts exact
-integral values, including `1.0` and `1e0`, within the `int64_t` range.
-`json_value_get_double` may round, accepts underflow to subnormal values or
-signed zero, and rejects non-finite results. Conversion range errors return
-`JSON_ERROR_OUT_OF_RANGE`. These conversion errors occur after the iterator
-has advanced and leave the output unchanged. Syntax and I/O failures still
-follow the general rule that a failed iterator must not be resumed.
+- Number syntax is validated independently of numeric conversion.
+- Numbers of any length can be streamed as their exact original text or skipped.
+- Integer conversion requires an exact value within the `int64_t` range.
+- Floating-point conversion may round and accepts underflow, but rejects overflow.
 
 **Strings**
 
