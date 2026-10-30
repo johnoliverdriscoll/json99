@@ -1,21 +1,22 @@
+#include <json99/json.h>
 #include <limits.h>
 #include <math.h>
 #include <string.h>
-#include <json99/json_buffer_reader.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_buffer_writer.h>
 #include <json99/json_number_writer.h>
 #include "test.h"
 
 static int
 read_number(
   const char* text,
-  JsonWriter* writer
+  SioWriter* writer
 ) {
-  JsonBufferReader reader;
+  SioBufferReader reader;
   JsonParser parser;
   JsonValue value;
-  json_buffer_reader_init(&reader, text, strlen(text));
-  int result = json_parser_init(&reader.reader, 1, &parser, &value);
+  sio_buffer_reader_init(&reader, text, strlen(text));
+  int result = json_parser_init((SioReader*) &reader, 1, &parser, &value);
   if (result != JSON_OK) {
     return result;
   }
@@ -33,17 +34,17 @@ test_exact_text(
   const char* cases[] = {"-0", "1.2300E+004", "0.000", "-12e-09"};
   for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
     char output[32] = {0};
-    JsonBufferWriter writer;
-    json_buffer_writer_init(&writer, output, sizeof(output));
+    SioBufferWriter writer;
+    sio_buffer_writer_init(&writer, output, sizeof(output));
     CHECK_OK(read_number(cases[i], &writer.writer));
     CHECK_EQ(writer.position, strlen(cases[i]));
     CHECK_EQ(memcmp(output, cases[i], writer.position), 0);
     CHECK_OK(read_number(cases[i], NULL));
   }
   char output[2];
-  JsonBufferWriter writer;
-  json_buffer_writer_init(&writer, output, sizeof(output));
-  CHECK_EQ(read_number("123", &writer.writer), JSON_ERROR_EOF);
+  SioBufferWriter writer;
+  sio_buffer_writer_init(&writer, output, sizeof(output));
+  CHECK_EQ(read_number("123", &writer.writer), JSON_ERROR_IO);
   CHECK_EQ(writer.position, 2);
   CHECK_EQ(memcmp(output, "12", 2), 0);
   CHECK_EQ(read_number("true", NULL), JSON_ERROR_INVALID);
@@ -152,8 +153,8 @@ test_long_numbers(
   text[0] = '1';
   memset(text + 1, '0', 10000);
   memcpy(text + 10001, "e-10000", 8);
-  JsonBufferWriter buffer;
-  json_buffer_writer_init(&buffer, output, sizeof(output));
+  SioBufferWriter buffer;
+  sio_buffer_writer_init(&buffer, output, sizeof(output));
   CHECK_OK(read_number(text, &buffer.writer));
   CHECK_EQ(buffer.position, strlen(text));
   CHECK_EQ(memcmp(text, output, buffer.position), 0);
@@ -172,11 +173,11 @@ test_long_numbers(
   output[0] = '[';
   memcpy(output + 1, text, size);
   memcpy(output + 1 + size, ",2]", 3);
-  JsonBufferReader reader;
+  SioBufferReader reader;
   JsonParser parser;
   JsonValue root, item;
-  json_buffer_reader_init(&reader, output, size + 4);
-  CHECK_OK(json_parser_init(&reader.reader, 1, &parser, &root));
+  sio_buffer_reader_init(&reader, output, size + 4);
+  CHECK_OK(json_parser_init((SioReader*) &reader, 1, &parser, &root));
   CHECK_OK(json_value_enter_container(&root, &item));
   CHECK_OK(json_value_advance(&item));
   CHECK_OK(json_value_get_int64(&item, &integer));
@@ -207,11 +208,11 @@ test_advancement(
   void
 ) {
   const char text[] = "[1.5,1e9999,2]";
-  JsonBufferReader reader;
+  SioBufferReader reader;
   JsonParser parser;
   JsonValue root, item;
-  json_buffer_reader_init(&reader, text, sizeof(text) - 1);
-  CHECK_OK(json_parser_init(&reader.reader, 1, &parser, &root));
+  sio_buffer_reader_init(&reader, text, sizeof(text) - 1);
+  CHECK_OK(json_parser_init((SioReader*) &reader, 1, &parser, &root));
   CHECK_OK(json_value_enter_container(&root, &item));
   int64_t integer = 77;
   double real = 77;
@@ -236,3 +237,4 @@ main(
   test_advancement();
   return EXIT_SUCCESS;
 }
+

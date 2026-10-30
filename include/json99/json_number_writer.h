@@ -2,13 +2,13 @@
 #define JSON_NUMBER_WRITER_H
 
 #include <json99/json.h>
-#include <json99/json_writer.h>
+#include <sio99/sio.h>
 
 /** Significant digits retained for binary64 rounding. */
 #define JSON_NUMBER_WRITER_DIGITS 1100
 
 /**
- * Caller-owned, allocation-free numeric writer. May be cast to `JsonWriter*`.
+ * Caller-owned, allocation-free numeric writer. May be cast to `SioWriter*`.
  * Keeps bounded conversion state rather than the original number text.
  * Keep it at a stable address while writing because its context points to it.
  */
@@ -52,7 +52,7 @@ int json_number_writer_get_double(
 
 /** Internal conversion state exposed for caller allocation. Do not modify. */
 struct JsonNumberWriter {
-  JsonWriter writer;
+  SioWriter writer;
   char digits[JSON_NUMBER_WRITER_DIGITS];
   size_t stored;
   int64_t significant;
@@ -67,3 +67,4 @@ struct JsonNumberWriter {
 };
 
 #endif /* JSON_NUMBER_WRITER_H */
+

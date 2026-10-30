@@ -8,7 +8,8 @@
  * context. No destination or encoding of output is prescribed by this type.
  * Implementations validate UTF-8 bytes and UTF-16 surrogate pairs, rejecting
  * a switch between input forms while a sequence is incomplete. `finish`
- * rejects incomplete input. Callback errors propagate to the producer.
+ * rejects incomplete input. Callbacks return json99 result codes, which
+ * propagate to the producer. Implementations retain any detailed I/O errors.
  */
 struct JsonUnicodeWriter {
 
@@ -34,3 +35,4 @@ struct JsonUnicodeWriter {
 };
 
 #endif /* JSON_UNICODE_WRITER_H */
+

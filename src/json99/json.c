@@ -1,9 +1,9 @@
 #include <string.h>
 #include <stdlib.h>
 #include <json99/json.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_writer.h>
 #include <json99/json_number_writer.h>
-#include <json99/json_reader.h>
+#include <sio99/sio.h>
 #include <json99/json_utf8_writer.h>
 #include "json_assert.h"
 #include "json_require.h"
@@ -11,37 +11,37 @@
 
 static int
 json_reader_peek(
-  JsonReader* reader,
+  SioReader* reader,
   uint8_t* out_peeked,
   bool* out_at_end
 ) {
-  JSON_ASSERT_NE(reader, NULL);
-  JSON_ASSERT_NE(reader->peek, NULL);
-
-  return reader->peek(reader->user, out_peeked, out_at_end);
+  int result = sio_reader_peek(reader, out_peeked, out_at_end);
+  return result == SIO_OK ? JSON_OK : JSON_ERROR_IO;
 }
 
 static int
 json_reader_read(
-  JsonReader* reader,
+  SioReader* reader,
   uint8_t* out_read
 ) {
-  JSON_ASSERT_NE(reader, NULL);
-  JSON_ASSERT_NE(reader->read, NULL);
-
-  return reader->read(reader->user, out_read);
+  int result = sio_reader_read(reader, out_read);
+  if (result == SIO_ERROR_EOF) {
+    return JSON_ERROR_EOF;
+  }
+  return result == SIO_OK ? JSON_OK : JSON_ERROR_IO;
 }
 
 static int
 json_writer_write(
-  JsonWriter* writer,
+  SioWriter* writer,
   uint8_t val
 ) {
   if (writer == NULL) {
     return JSON_OK;
   }
 
-  return writer->write(writer->user, val);
+  int result = sio_writer_write(writer, val);
+  return result == SIO_OK ? JSON_OK : JSON_ERROR_IO;
 }
 
 static int
@@ -87,7 +87,7 @@ json_unicode_writer_finish(
 
 static int
 json_peek_required(
-  JsonReader* reader,
+  SioReader* reader,
   uint8_t* out
 ) {
   JSON_ASSERT_NE(out, NULL);
@@ -103,7 +103,7 @@ json_peek_required(
 
 static int
 json_skip_whitespace(
-  JsonReader* reader
+  SioReader* reader
 ) {
   for (;;) {
     char c;
@@ -119,7 +119,7 @@ json_skip_whitespace(
 
 static int
 json_get_next_type(
-  JsonReader* reader,
+  SioReader* reader,
   JsonType* out_type
 ) {
   JSON_ASSERT_NE(out_type, NULL);
@@ -157,7 +157,7 @@ json_get_next_type(
 
 static int
 json_read_expected_chars(
-  JsonReader* reader,
+  SioReader* reader,
   const char* expected,
   size_t len
 ) {
@@ -178,8 +178,8 @@ json_read_expected_chars(
 
 static int
 json_read_unicode_unit(
-  JsonReader* reader,
-  JsonWriter* writer,
+  SioReader* reader,
+  SioWriter* writer,
   uint16_t *out
 ) {
   char value[5] = {0};
@@ -192,7 +192,7 @@ json_read_unicode_unit(
       JSON_ERROR_INVALID
     );
     if (writer != NULL) {
-      json_writer_write(writer, value[i]);
+      JSON_TRY(json_writer_write(writer, value[i]));
     }
   }
 
@@ -204,7 +204,7 @@ json_read_unicode_unit(
 
 int
 json_parser_init(
-  JsonReader* reader,
+  SioReader* reader,
   unsigned max_depth,
  JsonParser* out_parser,
   JsonValue* out_it
@@ -247,7 +247,7 @@ json_value_next(
     || it->container_type == JSON_TYPE_OBJECT
   );
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   JSON_TRY(json_skip_whitespace(reader));
 
@@ -307,8 +307,8 @@ json_value_validate_null(
   JSON_ASSERT_NE(it->parser, NULL);
 
   JSON_REQUIRE(it->type == JSON_TYPE_NULL, JSON_ERROR_INVALID);
-  
-  JsonReader* reader = it->parser->reader;
+
+  SioReader* reader = it->parser->reader;
 
   JSON_TRY(json_read_expected(reader, "null"));
 
@@ -327,7 +327,7 @@ json_value_get_bool(
 
   JSON_REQUIRE(it->type == JSON_TYPE_BOOL, JSON_ERROR_INVALID);
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   char c;
   JSON_TRY(json_peek_required(reader, (uint8_t*) &c));
@@ -357,13 +357,13 @@ json_value_get_bool(
 int
 json_value_read_number(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 ) {
   JSON_ASSERT_NE(it, NULL);
   JSON_ASSERT_NE(it->parser, NULL);
   JSON_REQUIRE(it->type == JSON_TYPE_NUMBER, JSON_ERROR_INVALID);
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   uint8_t c;
   JSON_TRY(json_peek_required(reader, &c));
@@ -427,7 +427,7 @@ json_value_get_double(
 ) {
   JsonNumberWriter writer;
   json_number_writer_init(&writer);
-  JSON_TRY(json_value_read_number(it, &writer.writer));
+  JSON_TRY(json_value_read_number(it, (SioWriter*) &writer));
   return json_number_writer_get_double(&writer, out_value);
 }
 
@@ -438,14 +438,14 @@ json_value_get_int64(
 ) {
   JsonNumberWriter writer;
   json_number_writer_init(&writer);
-  JSON_TRY(json_value_read_number(it, &writer.writer));
+  JSON_TRY(json_value_read_number(it, (SioWriter*) &writer));
   return json_number_writer_get_int64(&writer, out_value);
 }
 
 int
 json_value_read_string(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 ) {
   JsonUtf8Writer utf8;
   json_utf8_writer_init(&utf8, writer);
@@ -462,7 +462,7 @@ json_value_read_unicode(
 
   JSON_REQUIRE(it->type == JSON_TYPE_STRING, JSON_ERROR_INVALID);
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   uint8_t byte;
   JSON_TRY(json_reader_read(reader, &byte));
@@ -525,21 +525,21 @@ json_value_read_unicode(
 int
 json_value_read_raw_string(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 ) {
   JSON_ASSERT_NE(it, NULL);
   JSON_ASSERT_NE(it->parser, NULL);
 
   JSON_REQUIRE(it->type == JSON_TYPE_STRING, JSON_ERROR_INVALID);
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   JsonUtf8Writer utf8;
   json_utf8_writer_init(&utf8, NULL);
 
-  JsonBufferWriter utf16;
+  SioBufferWriter utf16;
   uint8_t utf16_bytes[10];
-  json_buffer_writer_init(&utf16, utf16_bytes, sizeof(utf16_bytes));
+  sio_buffer_writer_init(&utf16, utf16_bytes, sizeof(utf16_bytes));
 
   uint8_t byte;
   JSON_TRY(json_reader_read(reader, &byte));
@@ -623,13 +623,13 @@ json_value_read_raw_string(
       case 'u':
         JSON_TRY(json_writer_write(writer, '\\'));
         JSON_TRY(json_writer_write(writer, 'u'));
-        json_buffer_writer_reset(&utf16);
-        JSON_TRY(json_read_unicode_unit(reader, (JsonWriter*) &utf16, &unit));
+        sio_buffer_writer_reset(&utf16);
+        JSON_TRY(json_read_unicode_unit(reader, (SioWriter*) &utf16, &unit));
         JSON_TRY(json_unicode_writer_write_utf16(
           (JsonUnicodeWriter*) &utf8,
           unit
         ));
-        unit_size = json_buffer_writer_get_size(&utf16);
+        unit_size = sio_buffer_writer_get_size(&utf16);
         for (size_t i = 0; i < unit_size; i++) {
           JSON_TRY(json_writer_write(writer, utf16_bytes[i]));
         }
@@ -713,7 +713,7 @@ json_value_enter_container(
 
   *out_recursed = recursed;
 
-  JsonReader* reader = it->parser->reader;
+  SioReader* reader = it->parser->reader;
 
   char c;
   JSON_TRY(json_reader_read(reader, (uint8_t*) &c));

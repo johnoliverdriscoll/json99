@@ -1,6 +1,7 @@
+#include <json99/json.h>
 #include <string.h>
-#include <json99/json_buffer_reader.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_buffer_writer.h>
 #include "test.h"
 
 static void
@@ -21,13 +22,13 @@ test_output(
     for (unsigned discard = 0; discard < 2; discard++) {
       uint8_t output[128];
       memset(output, 0xa5, sizeof(output));
-      JsonBufferWriter writer;
-      json_buffer_writer_init(&writer, output, size - 2);
-      JsonBufferReader reader;
+      SioBufferWriter writer;
+      sio_buffer_writer_init(&writer, output, size - 2);
+      SioBufferReader reader;
       JsonParser parser;
       JsonValue value;
-      json_buffer_reader_init(&reader, strings[i], size);
-      CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &value));
+      sio_buffer_reader_init(&reader, strings[i], size);
+      CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &value));
       CHECK_OK(json_value_read_raw_string(
         &value,
         discard ? NULL : &writer.writer
@@ -59,13 +60,13 @@ test_invalid(
   for (size_t i = 0; i < sizeof(strings) / sizeof(*strings); i++) {
     for (unsigned discard = 0; discard < 2; discard++) {
       uint8_t output[128];
-      JsonBufferWriter writer;
-      json_buffer_writer_init(&writer, output, sizeof(output));
-      JsonBufferReader reader;
+      SioBufferWriter writer;
+      sio_buffer_writer_init(&writer, output, sizeof(output));
+      SioBufferReader reader;
       JsonParser parser;
       JsonValue value;
-      json_buffer_reader_init(&reader, strings[i], strlen(strings[i]));
-      CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &value));
+      sio_buffer_reader_init(&reader, strings[i], strlen(strings[i]));
+      CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &value));
       CHECK_EQ(json_value_read_raw_string(
         &value,
         discard ? NULL : &writer.writer
@@ -82,11 +83,11 @@ test_invalid(
     utf8[3] = escapes[i];
     const char* interrupted[] = {surrogate, utf8};
     for (size_t j = 0; j < 2; j++) {
-      JsonBufferReader reader;
+      SioBufferReader reader;
       JsonParser parser;
       JsonValue value;
-      json_buffer_reader_init(&reader, interrupted[j], strlen(interrupted[j]));
-      CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &value));
+      sio_buffer_reader_init(&reader, interrupted[j], strlen(interrupted[j]));
+      CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &value));
       CHECK_EQ(json_value_read_raw_string(&value, NULL), JSON_ERROR_INVALID);
       CHECK(!json_value_at_end(&value));
     }
@@ -99,11 +100,11 @@ test_truncation(
 ) {
   const char text[] = "\"a\\n\\uD83D\\uDE00\"";
   for (size_t size = 1; size < sizeof(text) - 1; size++) {
-    JsonBufferReader reader;
+    SioBufferReader reader;
     JsonParser parser;
     JsonValue value;
-    json_buffer_reader_init(&reader, text, size);
-    CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &value));
+    sio_buffer_reader_init(&reader, text, size);
+    CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &value));
     CHECK_EQ(json_value_read_raw_string(&value, NULL), JSON_ERROR_EOF);
     CHECK(!json_value_at_end(&value));
   }
@@ -114,18 +115,18 @@ test_traversal(
   void
 ) {
   const char text[] = "[\"a\\n\",{\"\\u006B\":\"\"},42]";
-  JsonBufferReader reader;
+  SioBufferReader reader;
   JsonParser parser;
   JsonValue root, array, object;
-  json_buffer_reader_init(&reader, text, sizeof(text) - 1);
-  CHECK_OK(json_parser_init(&reader.reader, 2, &parser, &root));
+  sio_buffer_reader_init(&reader, text, sizeof(text) - 1);
+  CHECK_OK(json_parser_init((SioReader*) &reader, 2, &parser, &root));
   CHECK_OK(json_value_enter_container(&root, &array));
   CHECK_OK(json_value_read_raw_string(&array, NULL));
   CHECK_EQ(json_value_get_type(&array), JSON_TYPE_OBJECT);
   CHECK_OK(json_value_enter_container(&array, &object));
   uint8_t output[6];
-  JsonBufferWriter writer;
-  json_buffer_writer_init(&writer, output, sizeof(output));
+  SioBufferWriter writer;
+  sio_buffer_writer_init(&writer, output, sizeof(output));
   CHECK_OK(json_value_read_raw_string(&object, &writer.writer));
   CHECK_EQ(writer.position, sizeof(output));
   CHECK_EQ(memcmp(output, "\\u006B", sizeof(output)), 0);
@@ -144,14 +145,14 @@ test_traversal(
   CHECK(json_value_at_end(&root));
 
   const char trailing[] = "\"x\" trailing";
-  json_buffer_reader_init(&reader, trailing, sizeof(trailing) - 1);
-  CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &root));
+  sio_buffer_reader_init(&reader, trailing, sizeof(trailing) - 1);
+  CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &root));
   CHECK_OK(json_value_read_raw_string(&root, NULL));
   CHECK_EQ(reader.position, 3);
 }
 
 typedef struct FailingWriter {
-  JsonBufferWriter buffer;
+  SioBufferWriter buffer;
   size_t limit;
 } FailingWriter;
 
@@ -162,7 +163,7 @@ fail_write(
 ) {
   FailingWriter* writer = user;
   if (writer->buffer.position == writer->limit) {
-    return JSON_ERROR_IO;
+    return SIO_ERROR_IO;
   }
   return writer->buffer.writer.write(&writer->buffer, byte);
 }
@@ -177,21 +178,21 @@ test_writer_failures(
     for (unsigned io_error = 0; io_error < 2; io_error++) {
       uint8_t output[128];
       FailingWriter sink = {.limit = limit};
-      json_buffer_writer_init(
+      sio_buffer_writer_init(
         &sink.buffer,
         output,
         io_error ? sizeof(output) : limit
       );
-      JsonWriter writer = {.user = &sink, .write = fail_write};
-      JsonBufferReader reader;
+      SioWriter writer = {.user = &sink, .write = fail_write};
+      SioBufferReader reader;
       JsonParser parser;
       JsonValue value;
-      json_buffer_reader_init(&reader, text, sizeof(text) - 1);
-      CHECK_OK(json_parser_init(&reader.reader, 0, &parser, &value));
+      sio_buffer_reader_init(&reader, text, sizeof(text) - 1);
+      CHECK_OK(json_parser_init((SioReader*) &reader, 0, &parser, &value));
       CHECK_EQ(json_value_read_raw_string(
         &value,
         io_error ? &writer : &sink.buffer.writer
-      ), io_error ? JSON_ERROR_IO : JSON_ERROR_EOF);
+      ), JSON_ERROR_IO);
       CHECK_EQ(sink.buffer.position, limit);
       CHECK_EQ(memcmp(output, text + 1, limit), 0);
       CHECK(!json_value_at_end(&value));
@@ -200,7 +201,7 @@ test_writer_failures(
 }
 
 typedef struct FailingReader {
-  JsonBufferReader buffer;
+  SioBufferReader buffer;
   size_t limit;
 } FailingReader;
 
@@ -211,9 +212,9 @@ fail_read(
 ) {
   FailingReader* reader = user;
   if (reader->buffer.position == reader->limit) {
-    return JSON_ERROR_IO;
+    return SIO_ERROR_IO;
   }
-  return reader->buffer.reader.read(&reader->buffer, out);
+  return sio_reader_read((SioReader*) &reader->buffer, out);
 }
 
 static int
@@ -223,7 +224,7 @@ forward_peek(
   bool* at_end
 ) {
   FailingReader* reader = user;
-  return reader->buffer.reader.peek(&reader->buffer, out, at_end);
+  return sio_reader_peek((SioReader*) &reader->buffer, out, at_end);
 }
 
 static void
@@ -233,8 +234,8 @@ test_reader_failures(
   const char text[] = "\"a\\n\\uD83D\\uDE00\"";
   for (size_t limit = 0; limit < sizeof(text) - 1; limit++) {
     FailingReader source = {.limit = limit};
-    json_buffer_reader_init(&source.buffer, text, sizeof(text) - 1);
-    JsonReader reader = {
+    sio_buffer_reader_init(&source.buffer, text, sizeof(text) - 1);
+    SioReader reader = {
       .user = &source,
       .read = fail_read,
       .peek = forward_peek,
@@ -260,3 +261,4 @@ main(
   test_reader_failures();
   return EXIT_SUCCESS;
 }
+

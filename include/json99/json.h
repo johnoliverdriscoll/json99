@@ -4,20 +4,24 @@
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <sio99/sio.h>
 
 /**
- * Result codes returned by parser operations and I/O callbacks.
+ * Result codes returned by json99 operations.
  * `JSON_OK` indicates success. Any other result indicates failure.
+ * Reader EOF becomes `JSON_ERROR_EOF`. Other reader failures and all byte
+ * writer failures become `JSON_ERROR_IO`. I/O implementations may retain
+ * their own detailed errors for callers to inspect.
  */
 enum {
 
   /** Operation finished successfully. */
   JSON_OK,
 
-  /** Required input exhausted, or fixed output buffer full. */
+  /** Required input exhausted. */
   JSON_ERROR_EOF,
 
-  /** I/O error encountered. */
+  /** A reader or writer operation failed. */
   JSON_ERROR_IO,
 
   /** Invalid syntax or unexpected value encountered. */
@@ -77,17 +81,6 @@ typedef struct JsonValue JsonValue;
 typedef struct JsonParser JsonParser;
 
 /**
- * A forward-only reader capable of peeking forward one byte.
- * The caller owns the callback context and underlying input.
- */
-typedef struct JsonReader JsonReader;
-
-/**
- * A byte writer. Writes exactly the supplied bytes without adding a terminator.
- */
-typedef struct JsonWriter JsonWriter;
-
-/**
  * Writer interface accepting UTF-8 bytes and UTF-16 code units.
  */
 typedef struct JsonUnicodeWriter JsonUnicodeWriter;
@@ -104,7 +97,7 @@ typedef struct JsonUnicodeWriter JsonUnicodeWriter;
  * stream.
  */
 int json_parser_init(
-  JsonReader* reader,
+  SioReader* reader,
   unsigned max_depth,
   JsonParser* out_parser,
   JsonValue* out_it
@@ -168,9 +161,10 @@ int json_value_get_int64(
  * terminator is added. An empty string returns `NULL` and zero.
  * Both output pointers must be non-`NULL`. On failure, outputs are `NULL`
  * and zero. The caller must free the returned allocation with `free`.
- * Requires linking `json99_heap`. Allocation failure returns
- * `JSON_ERROR_NO_MEMORY`. Parsing consumes and advances `it` before the final
- * allocation, so a subsequent failure does not restore the iterator.
+ * Requires linking `json99_heap`. Final allocation failure returns
+ * `JSON_ERROR_NO_MEMORY`. Scratch-writer failures return `JSON_ERROR_IO`.
+ * Parsing consumes and advances `it` before the final allocation, so a
+ * subsequent failure does not restore the iterator.
  */
 int json_value_get_bytes(
   JsonValue* it,
@@ -186,9 +180,10 @@ int json_value_get_bytes(
  * only the terminator. `out_cstring` must be non-`NULL`. On failure,
  * `*out_cstring` is `NULL`.
  * The caller must free the returned allocation with `free`.
- * Requires linking `json99_heap`. Allocation failure returns
- * `JSON_ERROR_NO_MEMORY`. Parsing consumes and advances `it` before final
- * allocation and C-string validation. Failures do not restore the iterator.
+ * Requires linking `json99_heap`. Final allocation failure returns
+ * `JSON_ERROR_NO_MEMORY`. Scratch-writer failures return `JSON_ERROR_IO`.
+ * Parsing consumes and advances `it` before final allocation and C-string
+ * validation. Failures do not restore the iterator.
  */
 int json_value_get_cstring(
   JsonValue* it,
@@ -292,7 +287,7 @@ bool json_value_is_object(
  */
 int json_value_read_number(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 );
 
 /**
@@ -306,12 +301,12 @@ int json_value_read_number(
  */
 int json_value_read_string(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 );
 
 /**
  * Reads a JSON string into a required Unicode sink. Unescaped bytes and simple
- * escapes go to `write_byte`. Each `\uXXXX` escape becomes a numeric UTF-16
+ * escapes go to `write_utf8`. Each `\uXXXX` escape becomes a numeric UTF-16
  * unit passed to `write_utf16`. Checks JSON syntax and rejects unescaped
  * control bytes. The sink is responsible for UTF-8 and surrogate-pair
  * validation. Calls `finish` after the closing quote and before advancing `it`.
@@ -330,12 +325,13 @@ int json_value_read_unicode(
  * converting the output. Rejects malformed strings and non-string values with
  * `JSON_ERROR_INVALID`. `writer` may be `NULL` to validate and discard.
  * On success, consumes the string and advances `it` to the next value or
- * the end of the container. Reader and writer errors propagate unchanged.
+ * the end of the container. Reader and writer failures are reported using
+ * json99 result codes as described above.
  * Failure may leave consumed input and partial output.
  */
 int json_value_read_raw_string(
   JsonValue* it,
-  JsonWriter* writer
+  SioWriter* writer
 );
 
 /** Internal iterator state exposed for caller allocation. Do not modify. */
@@ -351,8 +347,9 @@ struct JsonValue {
 /** Internal parser state exposed for caller allocation. Do not modify. */
 struct JsonParser {
   JsonValue it;
-  JsonReader* reader;
+  SioReader* reader;
   unsigned max_depth;
 };
 
 #endif /* JSON_H */
+

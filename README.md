@@ -20,20 +20,13 @@ optional libraries.
 ## Building
 
 ```sh
-cmake -S . -B build
-cmake --build build
-ctest --test-dir build --output-on-failure
-cmake --install build
+git clone --recurse-submodules https://github.com/johnoliverdriscoll/json99.git
+cmake -S json99 -B json99/build
+cmake --build json99/build
+ctest --test-dir json99/build --output-on-failure
 ```
 
-## Build options
-
-| Option | Default | Effect |
-| --- | --- | --- |
-| `BUILD_SHARED_LIBS` | `OFF` | Build shared libraries. |
-| `JSON99_BUILD_TESTING` | Top-level project only | Build json99 tests. |
-| `JSON99_WITH_STDIO` | `ON` | Build and install `json99_stdio`, the file reader. |
-| `JSON99_WITH_HEAP` | `ON` | Build and install `json99_heap`, the allocating getters and dynamic buffer writer. |
+See [BUILDING.md](BUILDING.md) for installation and build options.
 
 ## Parsing behavior
 
@@ -106,17 +99,17 @@ Initialize a buffer reader and parser, then read a boolean:
 
 ```c
 #include <json99/json.h>
-#include <json99/json_buffer_reader.h>
+#include <sio99/sio_buffer_reader.h>
 
 int main(void) {
   const char input[] = "true";
-  JsonBufferReader reader;
+  SioBufferReader reader;
   JsonParser parser;
   JsonValue it;
   bool value;
 
-  json_buffer_reader_init(&reader, input, sizeof(input) - 1);
-  TRY(json_parser_init((JsonReader*) &reader, 8, &parser, &it));
+  sio_buffer_reader_init(&reader, input, sizeof(input) - 1);
+  TRY(json_parser_init((SioReader*) &reader, 8, &parser, &it));
 
   if (!json_value_is_bool(&it)) {
     return 1;
@@ -134,13 +127,13 @@ int main(void) {
 
 ### Read from a file
 
-Use `JsonFileReader` from `<json99/json_file_reader.h>` with the
-`json99_stdio` library:
+Use `SioFileReader` from `<sio99/sio_file_reader.h>` with the
+`sio99_stdio` library:
 
 ```c
-JsonFileReader reader;
-json_file_reader_init(&reader, file);
-int result = json_parser_init((JsonReader*) &reader, 16, &parser, &it);
+SioFileReader reader;
+sio_file_reader_init(&reader, file);
+int result = json_parser_init((SioReader*) &reader, 16, &parser, &it);
 ```
 
 `file` is an open binary `FILE*`. The reader borrows it at its current
@@ -180,7 +173,7 @@ Reset the writer before each read so the next string starts at the beginning:
 ```c
 #include <stddef.h>
 #include <json99/json.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_writer.h>
 
 // Application function that processes the bytes before the next read.
 void process_bytes(const void* bytes, size_t size);
@@ -190,16 +183,16 @@ int read_strings(JsonValue* it, void* buffer, size_t capacity) {
     return JSON_ERROR_INVALID;
   }
 
-  JsonBufferWriter writer;
-  json_buffer_writer_init(&writer, buffer, capacity);
+  SioBufferWriter writer;
+  sio_buffer_writer_init(&writer, buffer, capacity);
 
   JsonValue child;
   TRY(json_value_enter_container(it, &child));
 
   while (!json_value_at_end(&child)) {
-    json_buffer_writer_reset(&writer);
-    TRY(json_value_read_string(&child, (JsonWriter*) &writer));
-    process_bytes(buffer, json_buffer_writer_get_size(&writer));
+    sio_buffer_writer_reset(&writer);
+    TRY(json_value_read_string(&child, (SioWriter*) &writer));
+    process_bytes(buffer, sio_buffer_writer_get_size(&writer));
   }
 
   return json_value_leave_container(it, &child);
@@ -207,7 +200,7 @@ int read_strings(JsonValue* it, void* buffer, size_t capacity) {
 ```
 
 The decoded bytes have no terminator. Each string must fit within `capacity`,
-or reading returns `JSON_ERROR_EOF`. Process or copy the bytes before the
+or reading returns `JSON_ERROR_IO`. Process or copy the bytes before the
 next read overwrites them.
 
 ### Decode a string whose length is unknown
@@ -232,7 +225,7 @@ int print_string(JsonValue* it) {
 ```
 
 For explicit scratch storage and copy-out operations, see
-[`JsonDynamicBufferWriter`](include/json99/json_dynamic_buffer_writer.h).
+`SioDynamicBufferWriter` in `<sio99/sio_dynamic_buffer_writer.h>`.
 
 ### Compare a string without allocating
 
@@ -259,7 +252,7 @@ static int compare_byte(void* user, uint8_t byte) {
 
 int string_equals(JsonValue* it, const char* expected, bool* equal) {
   StringMatch match = {expected, true};
-  JsonWriter writer = {&match, compare_byte};
+  SioWriter writer = {&match, compare_byte};
 
   *equal = false;
   TRY(json_value_read_string(it, &writer));
@@ -315,23 +308,23 @@ Read a number without losing precision through floating-point conversion:
 
 ```c
 #include <json99/json.h>
-#include <json99/json_buffer_reader.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_buffer_writer.h>
 
 int main(void) {
   const char input[] = "9007199254740993";
   char output[sizeof(input) - 1];
 
-  JsonBufferReader reader;
-  JsonBufferWriter writer;
+  SioBufferReader reader;
+  SioBufferWriter writer;
   JsonParser parser;
   JsonValue value;
 
-  json_buffer_reader_init(&reader, input, sizeof(input) - 1);
-  json_buffer_writer_init(&writer, output, sizeof(output));
+  sio_buffer_reader_init(&reader, input, sizeof(input) - 1);
+  sio_buffer_writer_init(&writer, output, sizeof(output));
 
-  TRY(json_parser_init(&reader.reader, 0, &parser, &value));
-  TRY(json_value_read_number(&value, (JsonWriter*) &writer));
+  TRY(json_parser_init((SioReader*) &reader, 0, &parser, &value));
+  TRY(json_value_read_number(&value, (SioWriter*) &writer));
 
   return 0;
 }
@@ -346,23 +339,23 @@ Read a string without changing how its characters were escaped:
 
 ```c
 #include <json99/json.h>
-#include <json99/json_buffer_reader.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_buffer_writer.h>
 
 int main(void) {
   const char input[] = "\"caf\\u00e9\\n\"";
   char output[sizeof(input) - 3];
 
-  JsonBufferReader reader;
-  JsonBufferWriter writer;
+  SioBufferReader reader;
+  SioBufferWriter writer;
   JsonParser parser;
   JsonValue value;
 
-  json_buffer_reader_init(&reader, input, sizeof(input) - 1);
-  json_buffer_writer_init(&writer, output, sizeof(output));
+  sio_buffer_reader_init(&reader, input, sizeof(input) - 1);
+  sio_buffer_writer_init(&writer, output, sizeof(output));
 
-  TRY(json_parser_init(&reader.reader, 0, &parser, &value));
-  TRY(json_value_read_raw_string(&value, (JsonWriter*) &writer));
+  TRY(json_parser_init((SioReader*) &reader, 0, &parser, &value));
+  TRY(json_value_read_raw_string(&value, (SioWriter*) &writer));
 
   return 0;
 }
@@ -373,3 +366,4 @@ quotes or terminator. The reader still validates the escapes and Unicode.
 Using `json_value_read_string` instead would produce UTF-8 `café` followed by
 a newline. When writing the preserved contents back to JSON, add surrounding
 quotes without escaping the contents again.
+

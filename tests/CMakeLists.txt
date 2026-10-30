@@ -16,9 +16,9 @@ target_link_libraries(test_unicode_writer PRIVATE json99)
 json99_add_test(test_number_writer)
 target_link_libraries(test_number_writer PRIVATE json99)
 
-if(JSON99_WITH_STDIO)
+if(TARGET sio99_stdio)
   json99_add_test(test_file_reader)
-  target_link_libraries(test_file_reader PRIVATE json99 json99_stdio)
+  target_link_libraries(test_file_reader PRIVATE json99 sio99_stdio)
 endif()
 
 if(JSON99_WITH_HEAP)
@@ -27,3 +27,6 @@ if(JSON99_WITH_HEAP)
   json99_add_test(test_dynamic_buffer_writer)
   target_link_libraries(test_dynamic_buffer_writer PRIVATE json99 json99_heap)
 endif()
+
+json99_add_test(test_io_errors)
+target_link_libraries(test_io_errors PRIVATE json99)

@@ -1,6 +1,7 @@
+#include <json99/json.h>
 #include <string.h>
-#include <json99/json_buffer_reader.h>
-#include <json99/json_buffer_writer.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_buffer_writer.h>
 #include <json99/json_utf8_writer.h>
 #include "test.h"
 
@@ -24,9 +25,9 @@ test_conversion(
   void
 ) {
   uint8_t output[32];
-  JsonBufferWriter destination;
+  SioBufferWriter destination;
   JsonUtf8Writer writer;
-  json_buffer_writer_init(&destination, output, sizeof(output));
+  sio_buffer_writer_init(&destination, output, sizeof(output));
   json_utf8_writer_init(&writer, &destination.writer);
   const uint16_t units[] = {0, 0x7f, 0x80, 0x7ff, 0x800, 0xffff,
     0xd800, 0xdc00, 0xdbff, 0xdfff};
@@ -42,7 +43,7 @@ test_conversion(
   CHECK_EQ(destination.position, sizeof(expected));
   CHECK_EQ(memcmp(output, expected, sizeof(expected)), 0);
 
-  json_buffer_writer_reset(&destination);
+  sio_buffer_writer_reset(&destination);
   json_utf8_writer_init(&writer, &destination.writer);
   CHECK_OK(write_utf8s(&writer, expected, sizeof(expected)));
   CHECK_EQ(destination.position, sizeof(expected));
@@ -94,14 +95,14 @@ test_destination_error(
   void
 ) {
   uint8_t output[1];
-  JsonBufferWriter destination;
+  SioBufferWriter destination;
   JsonUtf8Writer writer;
-  json_buffer_writer_init(&destination, output, sizeof(output));
+  sio_buffer_writer_init(&destination, output, sizeof(output));
   json_utf8_writer_init(&writer, &destination.writer);
-  CHECK_EQ(writer.writer.write_utf16(&writer, 0x800), JSON_ERROR_EOF);
+  CHECK_EQ(writer.writer.write_utf16(&writer, 0x800), JSON_ERROR_IO);
   CHECK_EQ(destination.position, 1);
-  CHECK_EQ(writer.writer.write_utf8(&writer, 'a'), JSON_ERROR_EOF);
-  CHECK_EQ(writer.writer.finish(&writer), JSON_ERROR_EOF);
+  CHECK_EQ(writer.writer.write_utf8(&writer, 'a'), JSON_ERROR_IO);
+  CHECK_EQ(writer.writer.finish(&writer), JSON_ERROR_IO);
 }
 
 typedef struct RecordingWriter {
@@ -158,11 +159,11 @@ test_parser(
       },
       .error = fail ? JSON_ERROR_IO : JSON_OK,
     };
-    JsonBufferReader reader;
+    SioBufferReader reader;
     JsonParser parser;
     JsonValue value;
-    json_buffer_reader_init(&reader, text, strlen(text));
-    CHECK_OK(json_parser_init(&reader.reader, 1, &parser, &value));
+    sio_buffer_reader_init(&reader, text, strlen(text));
+    CHECK_OK(json_parser_init((SioReader*) &reader, 1, &parser, &value));
     CHECK_EQ(json_value_read_unicode(&value, &sink.writer), sink.error);
     CHECK_EQ(sink.bytes, 2);
     CHECK_EQ(sink.units, 2);
@@ -176,11 +177,11 @@ test_parser(
     "\"\\u00xz\"", "\"\n\"", "\"\\x\"", "\"\xf0\x90\"",
   };
   for (size_t i = 0; i < sizeof(invalid) / sizeof(*invalid); i++) {
-    JsonBufferReader reader;
+    SioBufferReader reader;
     JsonParser parser;
     JsonValue value;
-    json_buffer_reader_init(&reader, invalid[i], strlen(invalid[i]));
-    CHECK_OK(json_parser_init(&reader.reader, 1, &parser, &value));
+    sio_buffer_reader_init(&reader, invalid[i], strlen(invalid[i]));
+    CHECK_OK(json_parser_init((SioReader*) &reader, 1, &parser, &value));
     CHECK_EQ(json_value_read_string(&value, NULL), JSON_ERROR_INVALID);
   }
 }
@@ -195,3 +196,4 @@ main(
   test_parser();
   return EXIT_SUCCESS;
 }
+

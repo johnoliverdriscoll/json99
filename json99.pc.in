@@ -5,5 +5,7 @@ includedir=@CMAKE_INSTALL_FULL_INCLUDEDIR@
 Name: json99
 Description: Forward-only JSON parser for C99 with caller-owned parsing contexts
 Version: @PROJECT_VERSION@
+Requires: sio99 utf99
 Libs: -L"${libdir}" @JSON99_PKGCONFIG_LIBS@
 Cflags: -I"${includedir}"
+

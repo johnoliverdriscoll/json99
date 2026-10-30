@@ -1,85 +1,35 @@
 #include <string.h>
-#include <json99/json_dynamic_buffer_writer.h>
+#include <json99/json.h>
+#include <sio99/sio_buffer_reader.h>
+#include <sio99/sio_dynamic_buffer_writer.h>
 #include "test.h"
 
 int
-main(
-  void
-) {
-  JsonDynamicBufferWriter writer;
-  void* data;
-  size_t size;
-
-  CHECK_NE(data = malloc(1026), NULL);
-
-  json_dynamic_buffer_writer_init(&writer);
-  size = json_dynamic_buffer_writer_get_size(&writer);
-  CHECK_EQ(size, 0);
-  for (size_t i = 0; i < 1025; i++) {
-    CHECK_OK(writer.writer.write(writer.writer.user, (uint8_t) i));
-  }
-  size = json_dynamic_buffer_writer_get_size(&writer);
-  CHECK_EQ(size, 1025);
-  memset(data, 0x7f, 1026);
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_bytes(&writer, data, 1024),
-    JSON_ERROR_EOF
-  );
-  for (size_t i = 0; i < 1025; i++) {
-    CHECK_EQ(((uint8_t*) data)[i], 0x7f);
-  }
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_bytes(&writer, data, 0),
-    JSON_ERROR_EOF
-  );
-  for (size_t i = 0; i < 1025; i++) {
-    CHECK_EQ(((uint8_t*) data)[i], 0x7f);
-  }
-  CHECK_OK(json_dynamic_buffer_writer_copy_bytes(&writer, data, 1026));
-  for (size_t i = 0; i < size; i++) {
-    CHECK_EQ(((uint8_t*) data)[i], (uint8_t) i);
-  }
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_cstring(&writer, data, 1026),
-    JSON_ERROR_INVALID
-  );
-  json_dynamic_buffer_writer_deinit(&writer);
-
-  json_dynamic_buffer_writer_init(&writer);
-  const char string[] = "Hello, world!";
-  for (size_t i = 0; i < sizeof(string) - 1; i++) {
-    CHECK_OK(writer.writer.write(writer.writer.user, (uint8_t) string[i]));
-  }
-  memset(data, 0x7f, 1026);
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_cstring(&writer, data, sizeof(string) - 1),
-    JSON_ERROR_EOF
-  );
-  for (size_t i = 0; i < 1025; i++) {
-    CHECK_EQ(((uint8_t*) data)[i], 0x7f);
-  }
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_cstring(&writer, data, 0),
-    JSON_ERROR_EOF
-  );
-  for (size_t i = 0; i < 1025; i++) {
-    CHECK_EQ(((uint8_t*) data)[i], 0x7f);
-  }
-  CHECK_OK(json_dynamic_buffer_writer_copy_cstring(&writer, data, 1026));
-  CHECK_EQ(strcmp(string, data), 0);
-  json_dynamic_buffer_writer_deinit(&writer);
-
-  json_dynamic_buffer_writer_init(&writer);
-  CHECK_EQ(
-    json_dynamic_buffer_writer_copy_cstring(&writer, data, 0),
-    JSON_ERROR_EOF
-  );
-  CHECK_OK(json_dynamic_buffer_writer_copy_bytes(&writer, NULL, 0));
-  CHECK_OK(json_dynamic_buffer_writer_copy_cstring(&writer, data, 1));
-  CHECK_EQ(strcmp("", data), 0);
-  json_dynamic_buffer_writer_deinit(&writer);
-
-  free(data);
-  
+main(void) {
+  const char text[] = "[\"a\\u0000b\",\"hello\"]";
+  SioBufferReader reader;
+  sio_buffer_reader_init(&reader, text, sizeof(text) - 1);
+  JsonParser parser;
+  JsonValue root;
+  JsonValue child;
+  CHECK_OK(json_parser_init((SioReader*) &reader, 1, &parser, &root));
+  CHECK_OK(json_value_enter_container(&root, &child));
+  SioDynamicBufferWriter writer;
+  sio_dynamic_buffer_writer_init(&writer);
+  CHECK_OK(json_value_read_string(&child, (SioWriter*) &writer));
+  CHECK_EQ(sio_dynamic_buffer_writer_get_size(&writer), 3);
+  uint8_t bytes[3];
+  sio_dynamic_buffer_writer_copy_bytes(&writer, bytes);
+  CHECK_EQ(memcmp(bytes, "a\0b", sizeof(bytes)), 0);
+  char string[6];
+  CHECK_EQ(sio_dynamic_buffer_writer_copy_cstring(&writer, string), SIO_ERROR_INVALID);
+  sio_dynamic_buffer_writer_reset(&writer);
+  CHECK_OK(json_value_read_string(&child, (SioWriter*) &writer));
+  CHECK_EQ(sio_dynamic_buffer_writer_get_size(&writer), 5);
+  CHECK_OK(sio_dynamic_buffer_writer_copy_cstring(&writer, string));
+  CHECK_EQ(strcmp(string, "hello"), 0);
+  CHECK_OK(json_value_leave_container(&root, &child));
+  CHECK(json_value_at_end(&root));
+  sio_dynamic_buffer_writer_deinit(&writer);
   return EXIT_SUCCESS;
 }

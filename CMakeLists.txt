@@ -7,8 +7,75 @@ project(json99
 
 option(BUILD_SHARED_LIBS "Build shared libraries" OFF)
 option(JSON99_BUILD_TESTING "Build tests" ${PROJECT_IS_TOP_LEVEL})
-option(JSON99_WITH_STDIO "Build the file reader" ON)
-option(JSON99_WITH_HEAP "Build the dynamic buffer writer" ON)
+option(JSON99_WITH_HEAP "Build allocating string getters" ON)
+option(JSON99_USE_SYSTEM_DEPENDENCIES "Find installed sio99 and utf99" OFF)
+
+if(NOT TARGET sio99)
+  if(JSON99_USE_SYSTEM_DEPENDENCIES)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(SIO99 REQUIRED IMPORTED_TARGET GLOBAL sio99)
+    add_library(sio99 ALIAS PkgConfig::SIO99)
+    foreach(adapter heap stdio)
+      find_library(JSON99_SIO99_${adapter}_LIBRARY
+        NAMES sio99_${adapter}
+        HINTS ${SIO99_LIBRARY_DIRS}
+      )
+      if(JSON99_SIO99_${adapter}_LIBRARY)
+        add_library(sio99_${adapter} UNKNOWN IMPORTED GLOBAL)
+        set_target_properties(sio99_${adapter} PROPERTIES
+          IMPORTED_LOCATION "${JSON99_SIO99_${adapter}_LIBRARY}"
+          INTERFACE_LINK_LIBRARIES sio99
+        )
+      endif()
+    endforeach()
+  else()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/sio99/CMakeLists.txt")
+      message(FATAL_ERROR
+        "The sio99 submodule is missing. Run: "
+        "git submodule update --init --recursive"
+      )
+    endif()
+    function(json_add_sio99)
+      if(NOT DEFINED SIO99_BUILD_TESTING)
+        set(SIO99_BUILD_TESTING OFF)
+      endif()
+      if(NOT DEFINED SIO99_WITH_HEAP)
+        set(SIO99_WITH_HEAP ${JSON99_WITH_HEAP})
+      endif()
+      add_subdirectory(src/sio99)
+    endfunction()
+    json_add_sio99()
+  endif()
+endif()
+
+if(NOT TARGET utf99)
+  if(JSON99_USE_SYSTEM_DEPENDENCIES)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(UTF99 REQUIRED IMPORTED_TARGET GLOBAL utf99)
+    add_library(utf99 ALIAS PkgConfig::UTF99)
+  else()
+    if(NOT EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/src/utf99/CMakeLists.txt")
+      message(FATAL_ERROR
+        "The utf99 submodule is missing. Run: "
+        "git submodule update --init --recursive"
+      )
+    endif()
+    function(json_add_utf99)
+      if(NOT DEFINED UTF99_BUILD_TESTING)
+        set(UTF99_BUILD_TESTING OFF)
+      endif()
+      add_subdirectory(src/utf99)
+    endfunction()
+    json_add_utf99()
+  endif()
+endif()
+
+if(JSON99_WITH_HEAP AND NOT TARGET sio99_heap)
+  message(FATAL_ERROR
+    "JSON99_WITH_HEAP requires sio99_heap. Enable SIO99_WITH_HEAP, "
+    "install the sio99 heap adapter, or disable JSON99_WITH_HEAP."
+  )
+endif()
 
 function(json_target_defaults target)
 
@@ -41,40 +108,27 @@ function(json_target_defaults target)
 endfunction()
 
 add_library(json99
-  src/json.c
-  src/json_number_writer.c
-  src/json_utf8_writer.c
-  src/json_buffer_reader.c
-  src/json_buffer_writer.c
+  src/json99/json.c
+  src/json99/json_number_writer.c
+  src/json99/json_utf8_writer.c
 )
 json_target_defaults(json99)
+target_link_libraries(json99 PUBLIC sio99 utf99)
 set_target_properties(json99
   PROPERTIES
     VERSION "${PROJECT_VERSION}"
     SOVERSION 0
 )
 
-if(JSON99_WITH_STDIO)
-  add_library(json99_stdio
-    src/json_file_reader.c
-  )
-  json_target_defaults(json99_stdio)
-  set_target_properties(json99_stdio
-    PROPERTIES
-      VERSION "${PROJECT_VERSION}"
-      SOVERSION 0
-  )
-endif()
-
 if(JSON99_WITH_HEAP)
   add_library(json99_heap
-    src/json_heap.c
-    src/json_dynamic_buffer_writer.c
+    src/json99/json_heap.c
   )
   json_target_defaults(json99_heap)
   target_link_libraries(json99_heap
     PUBLIC
       json99
+      sio99_heap
   )
   set_target_properties(json99_heap
     PROPERTIES
@@ -94,28 +148,11 @@ install(
 install(
   FILES
     include/json99/json.h
-    include/json99/json_buffer_reader.h
-    include/json99/json_buffer_writer.h
     include/json99/json_number_writer.h
-    include/json99/json_reader.h
     include/json99/json_unicode_writer.h
     include/json99/json_utf8_writer.h
-    include/json99/json_writer.h
   DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/json99"
 )
-
-if(JSON99_WITH_STDIO)
-  install(
-    TARGETS json99_stdio
-    ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
-    RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
-  )
-  install(
-    FILES include/json99/json_file_reader.h
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/json99"
-  )
-endif()
 
 if(JSON99_WITH_HEAP)
   install(
@@ -124,16 +161,9 @@ if(JSON99_WITH_HEAP)
     LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
     RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}"
   )
-  install(
-    FILES include/json99/json_dynamic_buffer_writer.h
-    DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/json99"
-  )
 endif()
 
 set(JSON99_PKGCONFIG_LIBS "")
-if(JSON99_WITH_STDIO)
-  string(APPEND JSON99_PKGCONFIG_LIBS "-ljson99_stdio ")
-endif()
 if(JSON99_WITH_HEAP)
   string(APPEND JSON99_PKGCONFIG_LIBS "-ljson99_heap ")
 endif()
@@ -146,7 +176,8 @@ install(
   DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig"
 )
 
-include(CTest)
 if(JSON99_BUILD_TESTING)
+  enable_testing()
   add_subdirectory(tests)
 endif()
+
